@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>PT Hypothesis Tool — React Prototype</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{--accent:#0b74ff;--muted:#6b7280;--card:#fff;--bg:#f6f9ff;font-family:Inter,system-ui,Segoe UI,Roboto,Arial}
+    body{margin:0;background:var(--bg);color:#111}
+    header{background:linear-gradient(90deg,var(--accent),#0ea5a5);color:white;padding:14px 18px;display:flex;align-items:center;gap:12px}
+    header h1{font-size:18px;margin:0}
+    .container{display:flex;gap:14px;padding:18px;flex-wrap:wrap}
+    .left{flex:1;min-width:400px}
+    .right{width:420px;display:flex;flex-direction:column;gap:12px}
+    .card{background:var(--card);padding:12px;border-radius:10px;box-shadow:0 6px 18px rgba(10,10,20,0.04)}
+    #viewerWrap{height:620px;border-radius:10px;overflow:hidden;background:#fff;display:flex;flex-direction:column}
+    .iframeWrapper{flex:1;border:0}
+    .controls{display:flex;gap:8px;padding-top:8px;align-items:center}
+    button{background:var(--accent);border:0;color:white;padding:8px 12px;border-radius:8px;cursor:pointer}
+    button.ghost{background:#eef6ff;color:var(--accent);border:1px solid #dbeafe}
+    .small{padding:6px 8px;font-size:13px}
+    .question{padding:10px;border-radius:8px;background:#fbfdff;border:1px solid #eef3ff;margin-bottom:8px}
+    .btnRow{display:flex;gap:8px;flex-wrap:wrap}
+    ul.outputs{list-style:none;padding:0;margin:0;display:grid;gap:8px}
+    .output-item{border-left:4px solid var(--accent);padding:10px;background:#fbfdff;border-radius:6px}
+  </style>
+</head>
+<body>
+  <header>
+    <svg width="36" height="36" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="white" opacity="0.07"/><path d="M6 16c2.5-4 6-7.5 12-8" stroke="white" stroke-width="1.4" stroke-linecap="round"/></svg>
+    <div>
+      <h1>PT Hypothesis Tool — React Prototype</h1>
+      <div style="font-size:12px;opacity:0.95">Embedded AnatomyTOOL 3D viewer + question flow (educational demo).</div>
+    </div>
+  </header>
+
+  <div id="root"></div>
+
+  <!-- React via CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <script>
+  const e = React.createElement;
+  const { useState } = React;
+
+  const ANATOMY_VIEWER_BASE = 'https://caskanatomy.info/open3dviewer/?model=overview-skull';
+
+  function App(){
+    const [useFallback, setUseFallback] = useState(false);
+    const [region, setRegion] = useState(null);
+    const [answers, setAnswers] = useState({});
+    const [outputs, setOutputs] = useState([{ title:'No selection yet', ex:'Click a region (iframe) or use fallback buttons to begin.' }]);
+
+    const regionQuestions = {
+      shoulder:[
+        {id:'q1', q:'Pain location: tip vs deep?', opts:['tip','deep','both']},
+        {id:'q2', q:'Weakness raising arm?', opts:['yes','no']},
+        {id:'q3', q:'Onset: sudden or gradual?', opts:['sudden','gradual']}
+      ],
+      knee:[
+        {id:'q1', q:'Front vs inside/outside/back?', opts:['front','inside','outside','back']},
+        {id:'q2', q:'Give way or lock?', opts:['give way','lock','no']},
+        {id:'q3', q:'Swelling?', opts:['yes','no']}
+      ]
+    };
+
+    function selectRegion(r){
+      setRegion(r);
+      setAnswers({});
+      setOutputs([{ title:'Processing...', ex:'Answer the guided questions then press "Generate"'}]);
+    }
+
+    function setAnswer(qid, val){
+      setAnswers(prev=> ({...prev, [qid]:val}));
+    }
+
+    function infer(){
+      if (!region){ alert('Select a region first'); return; }
+      const ans = answers;
+      const res = [];
+      if (region==='shoulder'){
+        if (ans.q2==='yes' || ans.q1==='deep') res.push({title:'Rotator cuff tendinopathy / tear (hypothetical)', confidence:0.7, ex:'Overhead weakness common; consider loading program.'});
+        if (ans.q3==='sudden') res.push({title:'Acute traumatic injury (dislocation/tear) — escalate', confidence:0.85, ex:'Consider urgent clinical review.'});
+        if (res.length===0) res.push({title:'Non-specific shoulder pain', confidence:0.4, ex:'Conservative management and reassess.'});
+      } else if (region==='knee'){
+        if (ans.q2==='give way') res.push({title:'Possible ligament injury (instability) — hypothetical', confidence:0.7, ex:'Consider clinical review and imaging if traumatic.'});
+        if (ans.q2==='lock') res.push({title:'Possible meniscal issue (mechanical)', confidence:0.75, ex:'Mechanical locking suggests meniscal pathology.'});
+        if (res.length===0) res.push({title:'Non-specific knee pain', confidence:0.4, ex:'Activity modification & rehab.'});
+      } else {
+        res.push({title:'Non-specific MSK pain', confidence:0.35, ex:'Conservative approach.'});
+      }
+      setOutputs(res);
+    }
+
+    function exportPdf(){
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      doc.setFontSize(14); doc.text('PT Hypothesis — Participant Report', 14, 20);
+      doc.setFontSize(11); doc.text(`Selected region: ${region||'None'}`, 14, 34);
+      doc.text('Answers:', 14, 44);
+      let y=52;
+      Object.entries(answers).forEach(([k,v])=>{
+        doc.text(`${k}: ${v}`, 14, y); y+=7;
+        if (y>280){ doc.addPage(); y=20; }
+      });
+      doc.text('Hypotheses:', 14, y+6); y+=12;
+      outputs.forEach(o=>{
+        doc.text(`- ${o.title} (${Math.round((o.confidence||0.5)*100)}%)`, 16, y); y+=7;
+        doc.text(`  ${o.ex}`, 18, y); y+=8;
+        if (y>280){ doc.addPage(); y=20; }
+      });
+      doc.save('pt_hypothesis_report.pdf');
+    }
+
+    return e('div', {className:'container'},
+      e('div', {className:'left'},
+        e('div', {className:'card', id:'viewerWrap'},
+          e('div', {style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px'}}, 
+            e('div', null, e('strong', null, '3D Anatomy Viewer (AnatomyTOOL)')),
+            e('div', null,
+              e('button', {className:'small ghost', onClick: ()=> setUseFallback(false)}, 'Show 3D viewer'),
+              ' ',
+              e('button', {className:'small', onClick: ()=> setUseFallback(true)}, 'Use 2D fallback')
+            )
+          ),
+          useFallback
+            ? e('div', {style:{padding:12}},
+                e('div', {style:{marginBottom:10,fontSize:13,color:'var(--muted)'}}, 'Fallback: click a region below to start'),
+                e('div', {className:'btnRow'},
+                  e('button', {className:'small ghost', onClick: ()=> selectRegion('neck')}, 'Neck'),
+                  e('button', {className:'small ghost', onClick: ()=> selectRegion('shoulder')}, 'Shoulder'),
+                  e('button', {className:'small ghost', onClick: ()=> selectRegion('elbow')}, 'Elbow'),
+                  e('button', {className:'small ghost', onClick: ()=> selectRegion('wrist')}, 'Wrist'),
+                  e('button', {className:'small ghost', onClick: ()=> selectRegion('lowback')}, 'Low back'),
+                  e('button', {className:'small ghost', onClick: ()=> selectRegion('hip')}, 'Hip'),
+                  e('button', {className:'small ghost', onClick: ()=> selectRegion('knee')}, 'Knee'),
+                  e('button', {className:'small ghost', onClick: ()=> selectRegion('ankle')}, 'Ankle')
+                )
+              )
+            : e('iframe', {
+                className:'iframeWrapper',
+                src: ANATOMY_VIEWER_BASE,
+                title:'AnatomyTOOL 3D viewer',
+                style:{width:'100%',height:'100%',border:0}
+              })
+        )
+      ),
+      e('div', {className:'right'},
+        e('div', {className:'card'},
+          e('h3', null, 'Selected region'),
+          e('div', {style:{fontWeight:600,color:'var(--accent)'}}, region || 'None')
+        ),
+        e('div', {className:'card'},
+          e('h3', null, 'Guided questions'),
+          region ? (
+            (regionQuestions[region] || [{id:'q0', q:'Describe pain type', opts:['ache','sharp','burning','numb']}]).map(q=>
+              e('div', {key:q.id, className:'question'},
+                e('div', {style:{fontWeight:600}}, q.q),
+                e('div', {className:'btnRow', style:{marginTop:8}},
+                  q.opts.map(opt => e('button', {
+                    key:opt,
+                    className:'small ghost',
+                    onClick: ()=> setAnswer(q.id, opt)
+                  }, opt))
+                )
+              )
+            )
+          ) : e('div', {className:'question'}, 'Select region first to load tailored questions.')
+        ),
+        e('div', {className:'card'},
+          e('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'center'}}, 
+            e('h3', null, 'Hypotheses & suggestions'),
+            e('div', null, e('button', {className:'small', onClick: infer}, 'Generate'))
+          ),
+          e('ul', {className:'outputs', style:{marginTop:8}},
+            outputs.map((o,i) => e('li', {className:'output-item', key:i},
+              e('div',{style:{display:'flex',justifyContent:'space-between'}}, 
+                e('strong', null, o.title),
+                e('span', {style:{color:'#6b7280'}}, `${Math.round((o.confidence||0.5)*100)}%`)
+              ),
+              e('div', {style:{marginTop:6,color:'var(--muted)',fontSize:13}}, o.ex),
+              e('div', {style:{marginTop:8,display:'flex',gap:8}},
+                e('button', {className:'small', onClick: ()=> alert('Exercise list for: ' + o.title)}, 'Exercises & Advice'),
+                e('button', {className:'small ghost', onClick: ()=> alert('Scan advice for: ' + o.title)}, 'Scan / Referral'),
+                e('button', {className:'small ghost', onClick: ()=> alert('Braces / Supports for: ' + o.title)}, 'Braces')
+              )
+            ))
+          )
+        ),
+        e('div', {className:'card'},
+          e('h3', null, 'Tissue healing timeframes (example)'),
+          e('div', {style:{display:'flex',gap:6,flexWrap:'wrap',marginTop:8}},
+            e('div', {style:{padding:'6px 8px',borderRadius:6,background:'#fff',border:'1px dashed #e6eefc'}}, 'Muscle: 2–8 wks'),
+            e('div', {style:{padding:'6px 8px',borderRadius:6,background:'#fff',border:'1px dashed #e6eefc'}}, 'Tendon: 6–12+ wks'),
+            e('div', {style:{padding:'6px 8px',borderRadius:6,background:'#fff',border:'1px dashed #e6eefc'}}, 'Ligament: 6–12 wks'),
+            e('div', {style:{padding:'6px 8px',borderRadius:6,background:'#fff',border:'1px dashed #e6eefc'}}, 'Bone: 6–12 wks')
+          )
+        ),
+        e('div', {className:'card'},
+          e('h3', null, 'Export / Tickbox process'),
+          e('div', null,
+            e('label', null, e('input', {type:'checkbox'}), ' Symptom & location recorded'),
+            e('br'),
+            e('label', null, e('input', {type:'checkbox'}), ' Pain severity recorded'),
+            e('br'),
+            e('label', null, e('input', {type:'checkbox'}), ' Red flags screened')
+          ),
+          e('div', {style:{display:'flex',gap:8,marginTop:10}},
+            e('button', {onClick: exportPdf}, 'Export PDF'),
+            e('button', {className:'ghost small', onClick: ()=> { navigator.clipboard.writeText(JSON.stringify({region,answers,outputs},null,2)); alert('Copied JSON summary to clipboard'); }}, 'Copy summary')
+          )
+        ),
+        e('div', {className:'card', style:{fontSize:12,color:'var(--muted)'}}, 
+          e('div', null, 'Prototype for education & triage only. Not a clinical diagnostic tool.'),
+          e('div', {style:{marginTop:6,fontSize:12}}, e('small', null, '3D model: Open3DModel (AnatomyTOOL) — CC BY-SA.'))
+        )
+      )
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render( e(App) );
+  </script>
+</body>
+</html>
